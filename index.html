@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#afa9d9">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="KiloGris">
+  <title>KiloGris</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="logo-badge" aria-hidden="true">KG</div>
+      <div class="header-copy">
+        <h1>KiloGris</h1>
+      </div>
+    </header>
+
+    <p id="flashMessage" class="flash-message hidden" role="status" aria-live="polite"></p>
+
+    <main class="layout-grid">
+      <section class="card key-card">
+        <div class="card-head">
+          <h2>Kaloriebudget</h2>
+          <button
+            id="settingsModalOpenButton"
+            class="settings-pencil-btn"
+            type="button"
+            aria-label="Åbn indstillinger"
+            aria-haspopup="dialog"
+            aria-controls="settingsModalBackdrop"
+            aria-expanded="false"
+          >✎</button>
+        </div>
+
+        <div class="priority-grid">
+          <div class="priority-item major" id="remainingTodayCard">
+            <span class="label">Kalorier tilbage i dag</span>
+            <strong id="remainingTodayValue">0 kcal</strong>
+          </div>
+
+          <div class="priority-item wide">
+            <span class="label">Dage tilbage i måneden</span>
+            <strong id="daysLeftValue">0</strong>
+          </div>
+
+          <div class="priority-item wide">
+            <span class="label">Månedens prognose</span>
+            <strong id="forecastWeightValue">0,0 kg</strong>
+          </div>
+        </div>
+
+        <div class="daily-breakdown">
+          <p><span>Basalforbrænding</span><strong id="baseTodayValue">0 kcal</strong></p>
+          <p><span>Motion i dag</span><strong id="burnedTodayValue">+0 kcal</strong></p>
+          <p><span>Samlet til rådighed</span><strong id="totalAvailableValue">0 kcal</strong></p>
+          <p><span>Spist</span><strong id="eatenTodayValue">0 kcal</strong></p>
+        </div>
+      </section>
+
+      <section class="card input-card">
+        <div class="card-head">
+          <h2>Dagens inputfelter</h2>
+          <div class="post-date-wrap">
+            <button class="post-date-trigger" id="inputDateTrigger" type="button" aria-label="Vælg dato for dagens input">
+              <svg class="post-date-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 3v3m8-3v3M4 9h16M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <input class="post-date-input" id="selectedDateInput" type="date" aria-label="Vælg dato for dagens input">
+          </div>
+        </div>
+
+        <form id="dailyLogForm" class="form-grid">
+          <label>
+            + Kalorier (spist)
+            <input id="addEatenInput" type="text" inputmode="decimal" placeholder="fx 640">
+          </label>
+          <label>
+            - Kalorier (forbrændt)
+            <input id="addBurnedInput" type="text" inputmode="decimal" placeholder="fx 220">
+          </label>
+          <label>
+            Min vægt i dag (kg) - valgfrit
+            <input id="addWeightInput" type="text" inputmode="decimal" placeholder="fx 78,4">
+          </label>
+          <div class="daily-actions">
+            <button class="btn btn-primary" type="submit">Tilføj</button>
+            <button class="btn btn-day-reset" id="resetDayButton" type="button">Nulstil</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card forecast-card">
+        <div class="card-head forecast-head">
+          <h2>Månedens prognose</h2>
+          <div class="forecast-head-actions">
+            <button
+              id="forecastInfoButton"
+              class="forecast-info-btn"
+              type="button"
+              aria-label="Vis information om prognosen"
+              aria-haspopup="dialog"
+              aria-controls="forecastInfoModalBackdrop"
+              aria-expanded="false"
+            >
+              <span class="forecast-info-mark" aria-hidden="true">i</span>
+            </button>
+            <button
+              id="chartToggleButton"
+              class="forecast-graph-btn"
+              type="button"
+              aria-label="Vis eller skjul graf"
+              aria-expanded="false"
+              aria-controls="chartContent"
+            >
+              <svg class="forecast-graph-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 18h16M5 15l5-5 4 3 5-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <p id="forecastMessage" class="forecast-message"></p>
+        <div class="chart-content hidden" id="chartContent">
+          <div class="legend">
+            <span><i class="dot predicted"></i><span id="predictedLegendText">Forventet vægttab</span></span>
+            <span><i class="dot reference"></i>Ligevægt</span>
+          </div>
+          <canvas id="projectionCanvas" height="260"></canvas>
+        </div>
+      </section>
+
+      <section class="card forecast-card">
+        <div class="card-head forecast-head">
+          <h2>Faktisk vægtændring</h2>
+          <button
+            id="actualChartToggleButton"
+            class="forecast-graph-btn"
+            type="button"
+            aria-label="Vis eller skjul faktisk vægttabsgraf"
+            aria-expanded="false"
+            aria-controls="actualChartContent"
+          >
+            <svg class="forecast-graph-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 18h16M5 15l5-5 4 3 5-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="chart-content hidden" id="actualChartContent">
+          <div class="legend">
+            <span><i class="dot predicted"></i>Faktisk vægtændring</span>
+            <span><i class="dot reference"></i>Ligevægt</span>
+          </div>
+          <canvas id="actualWeightCanvas" height="260"></canvas>
+        </div>
+      </section>
+
+      <section class="card history-card">
+        <div class="card-head">
+          <h2>Historik</h2>
+          <div class="actions">
+            <button class="btn btn-secondary" id="exportCsvButton" type="button">Eksporter CSV</button>
+            <button class="btn btn-danger" id="resetAllButton" type="button">Nulstil alt</button>
+          </div>
+        </div>
+
+        <div id="historyList" class="history-list"></div>
+      </section>
+    </main>
+
+    <div class="modal-backdrop hidden" id="settingsModalBackdrop">
+      <div class="modal-window" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+        <div class="modal-head">
+          <h2 class="modal-title" id="settingsModalTitle">Indstillinger</h2>
+          <button id="settingsModalCloseButton" class="modal-close-btn" type="button" aria-label="Luk indstillinger">✕</button>
+        </div>
+
+        <form id="settingsForm" class="form-grid settings-form-modal">
+          <label>
+            Daglig basalforbrænding (kcal)
+            <input id="dailyBudgetInput" type="text" inputmode="decimal" placeholder="fx 1850">
+          </label>
+          <label>
+            Startvægt (kg)
+            <input id="startWeightInput" type="text" inputmode="decimal" placeholder="fx 88,0">
+          </label>
+          <label>
+            Startdato for planen
+            <input id="planStartDateInput" type="date">
+          </label>
+
+          <div class="modal-actions">
+            <button class="btn btn-secondary" id="settingsModalCancelButton" type="button">Luk</button>
+            <button class="btn btn-primary" type="submit">Gem indstillinger</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="confirmModalBackdrop">
+      <div class="modal-window confirm-modal-window" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+        <h2 class="modal-title" id="confirmModalTitle"></h2>
+        <p class="confirm-modal-message" id="confirmModalMessage"></p>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="confirmModalCancelButton" type="button">Fortryd</button>
+          <button class="btn btn-confirm-danger" id="confirmModalConfirmButton" type="button">Nulstil</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="forecastInfoModalBackdrop">
+      <div class="modal-window info-modal-window" role="dialog" aria-modal="true" aria-labelledby="forecastInfoModalTitle">
+        <div class="modal-head">
+          <h2 class="modal-title" id="forecastInfoModalTitle">Om prognosen</h2>
+          <button id="forecastInfoModalCloseButton" class="modal-close-btn" type="button" aria-label="Luk information">✕</button>
+        </div>
+        <p class="confirm-modal-message">
+          Prognosen er baseret på dit kalorieregnskab og ikke dine vægtdata.
+        </p>
+        <div class="modal-actions modal-actions-single">
+          <button class="btn btn-secondary" id="forecastInfoModalOkButton" type="button">Luk</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/core.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "KiloGris",
+  "short_name": "KiloGris",
+  "lang": "da",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f2bbc9",
+  "theme_color": "#afa9d9",
+  "description": "Kaloriebudget, prognoser og vægtudvikling.",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
