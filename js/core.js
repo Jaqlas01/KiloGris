@@ -1,6 +1,7 @@
 const STORAGE_KEY = "kilogris_calorie_state_v1";
 const KCAL_PER_KG = 7700;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH_KEY_RE = /^\d{4}-\d{2}$/;
 
 const KCAL_FORMATTER = new Intl.NumberFormat("da-DK", {
   minimumFractionDigits: 0,
@@ -80,6 +81,7 @@ let settingsModalOpen = false;
 let confirmModalOpen = false;
 let forecastInfoModalOpen = false;
 let confirmModalResolver = null;
+let monthlyBasalReviewInProgress = false;
 
 init();
 
@@ -132,8 +134,12 @@ function init() {
       if (actualChartExpanded) drawActualWeightChart(buildActualWeightChartModel());
     }, 110);
   });
+  window.addEventListener("focus", () => {
+    void maybeOfferBasalAdjustmentAtMonthRollover();
+  });
 
   renderAll();
+  void maybeOfferBasalAdjustmentAtMonthRollover();
   registerServiceWorker();
 }
 
@@ -147,6 +153,7 @@ function createDefaultState() {
       targetWeight: 78,
       startDateISO: todayISO,
     },
+    lastBasalReviewMonthKey: "",
     days: [],
   };
 }
@@ -180,12 +187,18 @@ function normalizeState(rawState, fallback) {
   if (!DATE_RE.test(selectedDateISO)) selectedDateISO = todayISO;
   if (selectedDateISO > todayISO) selectedDateISO = todayISO;
 
+  let lastBasalReviewMonthKey = String(rawState?.lastBasalReviewMonthKey || "");
+  if (!MONTH_KEY_RE.test(lastBasalReviewMonthKey)) {
+    lastBasalReviewMonthKey = fallback.lastBasalReviewMonthKey;
+  }
+
   const days = Array.isArray(rawState?.days)
     ? rawState.days.map(normalizeDayRecord).filter(Boolean)
     : [];
 
   return {
     selectedDateISO,
+    lastBasalReviewMonthKey,
     settings: {
       dailyBudget: round0(dailyBudget),
       startWeight: round1(startWeight),
@@ -555,12 +568,19 @@ function handleForecastInfoBackdropClick(event) {
   closeForecastInfoModal();
 }
 
-function openConfirmModal({ title, message, confirmText = "OK", cancelText = "Fortryd" } = {}) {
+function openConfirmModal({
+  title,
+  message,
+  confirmText = "OK",
+  cancelText = "Fortryd",
+  preserveLineBreaks = false,
+} = {}) {
   if (confirmModalOpen) return Promise.resolve(false);
 
   confirmModalOpen = true;
   confirmModalTitleEl.textContent = title || "Bekræft";
   confirmModalMessageEl.textContent = message || "";
+  confirmModalMessageEl.style.whiteSpace = preserveLineBreaks ? "pre-line" : "";
   confirmModalConfirmButtonEl.textContent = confirmText;
   confirmModalCancelButtonEl.textContent = cancelText;
   confirmModalBackdropEl.classList.remove("hidden");
@@ -629,6 +649,7 @@ function handleDailyLogSubmit(event) {
 
   saveState();
   renderAll();
+  void maybeOfferBasalAdjustmentAtMonthRollover();
 
   addEatenInputEl.value = "";
   addBurnedInputEl.value = "";
@@ -672,6 +693,7 @@ function handleSelectedDateChange() {
   state.selectedDateISO = candidate > todayISO ? todayISO : candidate;
   saveState();
   renderAll();
+  void maybeOfferBasalAdjustmentAtMonthRollover();
 }
 
 async function handleHistoryClick(event) {
@@ -846,6 +868,87 @@ function getMonthStats() {
     projectedKgChange,
     currentEstimatedWeight,
     projectedEndWeight,
+  };
+}
+
+async function maybeOfferBasalAdjustmentAtMonthRollover() {
+  if (monthlyBasalReviewInProgress) return;
+
+  const todayISO = getTodayISO();
+  const currentMonthKey = getMonthKeyFromISO(todayISO);
+  if (state.lastBasalReviewMonthKey === currentMonthKey) return;
+  if (settingsModalOpen || confirmModalOpen || forecastInfoModalOpen) return;
+
+  monthlyBasalReviewInProgress = true;
+  try {
+    const review = analyzePreviousMonthForBasalAdjustment(todayISO);
+    state.lastBasalReviewMonthKey = currentMonthKey;
+    saveState();
+
+    if (!review) return;
+
+    const confirmed = await openConfirmModal({
+      title: "Juster basalforbrænding?",
+      message:
+        `Sidste måned tabte du ${formatSignedKg(review.actualWeightLossKg)}.\n` +
+        `Modellen forventede ${formatSignedKg(review.expectedWeightLossKg)}.\n` +
+        "Vil du justere din basalforbrænding?",
+      confirmText: "Juster basalforbrænding",
+      cancelText: "Behold nuværende",
+      preserveLineBreaks: true,
+    });
+    if (!confirmed) return;
+
+    const currentBudget = state.settings.dailyBudget;
+    const suggestedBudget = Math.max(1, round0(currentBudget + review.recommendedDailyBudgetDelta));
+    if (suggestedBudget === currentBudget) {
+      showFlash("Basalforbrændingen er allerede tæt på modellen.", "info");
+      return;
+    }
+
+    state.settings.dailyBudget = suggestedBudget;
+    saveState();
+    renderAll();
+    showFlash(`Basalforbrænding justeret til ${formatKcal(suggestedBudget)} pr. dag.`, "success");
+  } finally {
+    monthlyBasalReviewInProgress = false;
+  }
+}
+
+function analyzePreviousMonthForBasalAdjustment(referenceDateISO) {
+  const { year, month } = getPreviousYearMonth(referenceDateISO);
+  const monthRecords = sortDaysAsc(
+    state.days.filter((record) => isSameYearMonth(record.dateISO, year, month))
+  );
+
+  const calorieRecords = monthRecords.filter((record) => record.eaten > 0 || record.burned > 0);
+  const calorieLoggedDays = new Set(calorieRecords.map((record) => record.dateISO)).size;
+  if (calorieLoggedDays < 21) return null;
+
+  const weightRecords = monthRecords.filter((record) => record.weight != null);
+  if (weightRecords.length < 5) return null;
+
+  const firstWeight = weightRecords[0].weight;
+  const lastWeight = weightRecords[weightRecords.length - 1].weight;
+  if (firstWeight == null || lastWeight == null) return null;
+
+  const actualWeightChangeKg = lastWeight - firstWeight;
+  const actualWeightLossKg = -actualWeightChangeKg;
+
+  const expectedWeightLossKg = calorieRecords.reduce((sum, record) => {
+    return sum + getSaldoForRecord(record);
+  }, 0) / KCAL_PER_KG;
+
+  const differenceKg = Math.abs(expectedWeightLossKg - actualWeightLossKg);
+  if (differenceKg <= 0.5) return null;
+
+  const recommendedDailyBudgetDelta =
+    ((actualWeightLossKg - expectedWeightLossKg) * KCAL_PER_KG) / calorieLoggedDays;
+
+  return {
+    actualWeightLossKg,
+    expectedWeightLossKg,
+    recommendedDailyBudgetDelta,
   };
 }
 
@@ -1258,6 +1361,12 @@ function formatKcalSigned(value, withPlus) {
   return `${KCAL_FORMATTER.format(0)} kcal`;
 }
 
+function formatSignedKg(value) {
+  const rounded = round1(value);
+  if (rounded < 0) return `-${formatKg(Math.abs(rounded))}`;
+  return formatKg(rounded);
+}
+
 function formatKg(value) {
   return `${KG_FORMATTER.format(round1(value))} kg`;
 }
@@ -1318,6 +1427,21 @@ function addDaysISO(iso, days) {
   const dt = dateFromISO(iso);
   dt.setDate(dt.getDate() + days);
   return toISODate(dt);
+}
+
+function getMonthKeyFromISO(iso) {
+  const d = dateFromISO(iso);
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  return `${d.getFullYear()}-${month}`;
+}
+
+function getPreviousYearMonth(referenceDateISO) {
+  const referenceDate = dateFromISO(referenceDateISO);
+  const previousMonthDate = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 0);
+  return {
+    year: previousMonthDate.getFullYear(),
+    month: previousMonthDate.getMonth(),
+  };
 }
 
 function isSameYearMonth(iso, year, monthIndex) {
