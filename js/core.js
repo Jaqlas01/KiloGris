@@ -50,15 +50,18 @@ const addWeightInputEl = document.getElementById("addWeightInput");
 const resetDayButtonEl = document.getElementById("resetDayButton");
 
 const forecastMessageEl = document.getElementById("forecastMessage");
-const predictedLegendTextEl = document.getElementById("predictedLegendText");
 const forecastInfoButtonEl = document.getElementById("forecastInfoButton");
 
 const projectionCanvasEl = document.getElementById("projectionCanvas");
-const actualWeightCanvasEl = document.getElementById("actualWeightCanvas");
 const chartToggleButtonEl = document.getElementById("chartToggleButton");
 const chartContentEl = document.getElementById("chartContent");
-const actualChartToggleButtonEl = document.getElementById("actualChartToggleButton");
-const actualChartContentEl = document.getElementById("actualChartContent");
+const expectedWeightTodayEl = document.getElementById("expectedWeightToday");
+const latestActualWeightEl = document.getElementById("latestActualWeight");
+const weightDeviationEl = document.getElementById("weightDeviation");
+const weightComparisonHintEl = document.getElementById("weightComparisonHint");
+const expectedWeightRowEl = document.getElementById("expectedWeightRow");
+const latestActualRowEl = document.getElementById("latestActualRow");
+const weightDeviationRowEl = document.getElementById("weightDeviationRow");
 
 const exportCsvButtonEl = document.getElementById("exportCsvButton");
 const resetAllButtonEl = document.getElementById("resetAllButton");
@@ -76,7 +79,6 @@ let state = loadState();
 let flashTimeoutId = null;
 let chartResizeTimeout = null;
 let chartExpanded = false;
-let actualChartExpanded = false;
 let settingsModalOpen = false;
 let confirmModalOpen = false;
 let forecastInfoModalOpen = false;
@@ -102,9 +104,6 @@ function init() {
   if (chartToggleButtonEl) {
     chartToggleButtonEl.addEventListener("click", handleChartToggleClick);
   }
-  if (actualChartToggleButtonEl) {
-    actualChartToggleButtonEl.addEventListener("click", handleActualChartToggleClick);
-  }
   if (forecastInfoButtonEl) {
     forecastInfoButtonEl.addEventListener("click", openForecastInfoModal);
   }
@@ -127,11 +126,10 @@ function init() {
   document.addEventListener("keydown", handleGlobalKeydown);
 
   window.addEventListener("resize", () => {
-    if (!chartExpanded && !actualChartExpanded) return;
+    if (!chartExpanded) return;
     clearTimeout(chartResizeTimeout);
     chartResizeTimeout = window.setTimeout(() => {
-      if (chartExpanded) drawProjectionChart(buildChartModel());
-      if (actualChartExpanded) drawActualWeightChart(buildActualWeightChartModel());
+      if (chartExpanded) drawWeightChart(buildWeightChartModel());
     }, 110);
   });
   window.addEventListener("focus", () => {
@@ -244,7 +242,6 @@ function renderAll() {
   renderForecastSection();
   renderHistory();
   renderChartSection();
-  renderActualChartSection();
 }
 
 function renderChartSection() {
@@ -255,30 +252,13 @@ function renderChartSection() {
 
   if (!chartExpanded) return;
   window.requestAnimationFrame(() => {
-    drawProjectionChart(buildChartModel());
+    drawWeightChart(buildWeightChartModel());
   });
 }
 
 function handleChartToggleClick() {
   chartExpanded = !chartExpanded;
   renderChartSection();
-}
-
-function renderActualChartSection() {
-  if (!actualChartToggleButtonEl || !actualChartContentEl) return;
-
-  actualChartToggleButtonEl.setAttribute("aria-expanded", actualChartExpanded ? "true" : "false");
-  actualChartContentEl.classList.toggle("hidden", !actualChartExpanded);
-
-  if (!actualChartExpanded) return;
-  window.requestAnimationFrame(() => {
-    drawActualWeightChart(buildActualWeightChartModel());
-  });
-}
-
-function handleActualChartToggleClick() {
-  actualChartExpanded = !actualChartExpanded;
-  renderActualChartSection();
 }
 
 function syncDateInputs() {
@@ -339,41 +319,11 @@ function renderTopNumbers() {
 }
 
 function renderForecastSection() {
-  const monthStats = getMonthStats();
-  renderChartLegendText(monthStats);
+  renderWeightComparisonMetrics(buildWeightChartModel());
 
+  forecastMessageEl.textContent = "";
   forecastMessageEl.classList.remove("loss", "gain", "flat");
-
-  if (monthStats.elapsedPlanDays <= 0) {
-    forecastMessageEl.textContent = "Planen er ikke startet i den valgte måned endnu, så prognosen venter på data.";
-    forecastMessageEl.classList.add("flat");
-    return;
-  }
-
-  const kgChange = monthStats.projectedKgChange;
-
-  if (kgChange > 0.04) {
-    forecastMessageEl.textContent = `Hvis dette mønster fortsætter, risikerer du at tage ${formatKg(Math.abs(kgChange))} på denne måned.`;
-    forecastMessageEl.classList.add("loss");
-    return;
-  }
-
-  if (kgChange < -0.04) {
-    forecastMessageEl.textContent = `Hvis dette mønster fortsætter, vil du tage ca. ${formatKg(Math.abs(kgChange))} på denne måned.`;
-    forecastMessageEl.classList.add("gain");
-    return;
-  }
-
-  forecastMessageEl.textContent = "Hvis dette mønster fortsættes, bevarer du din vægt.";
-  forecastMessageEl.classList.add("flat");
-}
-
-function renderChartLegendText(monthStats) {
-  if (!predictedLegendTextEl) return;
-  const isCalorieDeficit = monthStats.projectedMonthSaldo >= 0;
-  predictedLegendTextEl.textContent = isCalorieDeficit
-    ? "Forventet vægttab"
-    : "Forventet vægtforøgelse";
+  forecastMessageEl.classList.add("hidden");
 }
 
 function renderHistory() {
@@ -970,146 +920,76 @@ function estimateWeightAtEndOfDate(dateISO) {
   return round1(state.settings.startWeight - saldo / KCAL_PER_KG);
 }
 
-function buildChartModel() {
-  const monthStats = getMonthStats();
-
-  const year = monthStats.year;
-  const month = monthStats.month;
-  const daysInMonth = monthStats.daysInMonth;
-
-  const monthStartWeight = estimateWeightAtEndOfDate(addDaysISO(monthStats.monthStartISO, -1));
-  const currentWeight = monthStats.currentEstimatedWeight;
-
-  const predicted = [];
-  const reference = [];
-
-  const avgDailySaldo = monthStats.averagePerDay;
-
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    const dayISO = toISODate(new Date(year, month, day));
-
-    let projectedWeight = 0;
-    if (dayISO <= state.selectedDateISO) {
-      projectedWeight = estimateWeightAtEndOfDate(dayISO);
-    } else {
-      const futureDays = diffDaysExclusive(state.selectedDateISO, dayISO);
-      projectedWeight = currentWeight - (avgDailySaldo * futureDays) / KCAL_PER_KG;
-    }
-
-    predicted.push({ day, weight: round1(projectedWeight - monthStartWeight) });
-    reference.push({ day, weight: 0 });
-  }
-
-  return {
-    year,
-    month,
-    daysInMonth,
-    selectedDay: dateFromISO(state.selectedDateISO).getDate(),
-    predicted,
-    reference,
-  };
-}
-
-function buildActualWeightChartModel() {
+function buildWeightChartModel() {
   const selectedDate = dateFromISO(state.selectedDateISO);
   const year = selectedDate.getFullYear();
   const month = selectedDate.getMonth();
   const daysInMonth = getDaysInMonth(year, month);
 
-  const weightedRecords = sortDaysAsc(
+  const monthStartISO = toISODate(new Date(year, month, 1));
+  const analysisStartISO = maxISO(monthStartISO, state.settings.startDateISO);
+  const monthStartWeight = estimateWeightAtEndOfDate(addDaysISO(monthStartISO, -1));
+
+  const dayRecords = new Map();
+  state.days.forEach((record) => {
+    if (record.dateISO > state.selectedDateISO) return;
+    if (!isSameYearMonth(record.dateISO, year, month)) return;
+    dayRecords.set(record.dateISO, record);
+  });
+
+  const predicted = [];
+  let accumulatedDeficit = 0;
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const dayISO = toISODate(new Date(year, month, day));
+
+    if (dayISO >= analysisStartISO && dayISO <= state.selectedDateISO) {
+      const record = dayRecords.get(dayISO);
+      if (record) {
+        const dailyNet = record.eaten - record.burned;
+        const dailyDeficit = state.settings.dailyBudget - dailyNet;
+        accumulatedDeficit += dailyDeficit;
+      }
+    }
+
+    const forecastWeight = monthStartWeight - accumulatedDeficit / KCAL_PER_KG;
+    predicted.push({ day, weight: forecastWeight, dateISO: dayISO });
+  }
+
+  const actual = sortDaysAsc(
     state.days.filter((record) => {
       if (record.weight == null) return false;
       if (record.dateISO > state.selectedDateISO) return false;
       return isSameYearMonth(record.dateISO, year, month);
     })
-  );
+  ).map((record) => ({
+    day: dateFromISO(record.dateISO).getDate(),
+    weight: record.weight,
+    dateISO: record.dateISO,
+  }));
 
-  const predicted = [];
-  const reference = [];
-
-  let baselineWeight = null;
-  if (weightedRecords.length > 0) {
-    baselineWeight = weightedRecords[0].weight;
-  }
-
-  weightedRecords.forEach((record) => {
-    if (baselineWeight == null) return;
-    const day = dateFromISO(record.dateISO).getDate();
-    predicted.push({ day, weight: round1(baselineWeight - record.weight) });
-  });
-
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    reference.push({ day, weight: 0 });
-  }
+  const selectedDay = selectedDate.getDate();
+  const forecastTodayPoint = predicted.find((point) => point.day === selectedDay) || predicted[predicted.length - 1] || null;
+  const latestActualPoint = actual.length > 0 ? actual[actual.length - 1] : null;
+  const deviation = latestActualPoint && forecastTodayPoint
+    ? round1(latestActualPoint.weight - forecastTodayPoint.weight)
+    : null;
 
   return {
     year,
     month,
     daysInMonth,
-    selectedDay: selectedDate.getDate(),
+    selectedDay,
     predicted,
-    reference,
+    actual,
+    forecastToday: forecastTodayPoint ? forecastTodayPoint.weight : monthStartWeight,
+    latestActual: latestActualPoint ? latestActualPoint.weight : null,
+    deviation,
   };
 }
 
-function drawProjectionChart(model) {
+function drawWeightChart(model) {
   const canvas = projectionCanvasEl;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const cssWidth = Math.max(canvas.clientWidth || 320, 280);
-  const cssHeight = 260;
-
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(cssWidth * dpr);
-  canvas.height = Math.round(cssHeight * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  ctx.clearRect(0, 0, cssWidth, cssHeight);
-
-  const pad = { top: 18, right: 18, bottom: 34, left: 52 };
-  const plotW = cssWidth - pad.left - pad.right;
-  const plotH = cssHeight - pad.top - pad.bottom;
-
-  if (plotW <= 30 || plotH <= 30) return;
-
-  const allWeights = [...model.predicted, ...model.reference].map((point) => point.weight);
-  let minW = Math.min(...allWeights);
-  let maxW = Math.max(...allWeights);
-
-  if (!Number.isFinite(minW) || !Number.isFinite(maxW)) return;
-
-  if (Math.abs(maxW - minW) < 0.6) {
-    maxW += 0.3;
-    minW -= 0.3;
-  }
-
-  const margin = Math.max((maxW - minW) * 0.14, 0.4);
-  minW -= margin;
-  maxW += margin;
-
-  const xForDay = (day) => {
-    const ratio = (day - 1) / Math.max(model.daysInMonth - 1, 1);
-    return pad.left + ratio * plotW;
-  };
-
-  const yForWeight = (weight) => {
-    const ratio = (maxW - weight) / (maxW - minW);
-    return pad.top + ratio * plotH;
-  };
-
-  drawGrid(ctx, pad, plotW, plotH);
-  drawYAxisLabels(ctx, minW, maxW, yForWeight, pad.left);
-
-  drawLine(ctx, model.reference, xForDay, yForWeight, "#7a7e8b", true, 2.2);
-  drawLine(ctx, model.predicted, xForDay, yForWeight, "#3f4454", false, 3.8);
-
-  drawSelectedMarker(ctx, model.selectedDay, model.predicted, xForDay, yForWeight);
-  drawXAxisLabels(ctx, model, xForDay, cssHeight, pad.bottom);
-}
-
-function drawActualWeightChart(model) {
-  const canvas = actualWeightCanvasEl;
   if (!canvas) return;
 
   const ctx = canvas.getContext("2d");
@@ -1131,19 +1011,15 @@ function drawActualWeightChart(model) {
 
   if (plotW <= 30 || plotH <= 30) return;
 
-  const fallbackSeries = model.predicted.length > 0
-    ? model.predicted
-    : [{ day: 1, weight: 0 }, { day: model.daysInMonth, weight: 0 }];
-
-  const allWeights = [...fallbackSeries, ...model.reference].map((point) => point.weight);
+  const allWeights = [...model.predicted, ...model.actual].map((point) => point.weight);
   let minW = Math.min(...allWeights);
   let maxW = Math.max(...allWeights);
 
   if (!Number.isFinite(minW) || !Number.isFinite(maxW)) return;
 
-  if (Math.abs(maxW - minW) < 0.6) {
-    maxW += 0.3;
-    minW -= 0.3;
+  if (Math.abs(maxW - minW) < 0.8) {
+    maxW += 0.4;
+    minW -= 0.4;
   }
 
   const margin = Math.max((maxW - minW) * 0.14, 0.4);
@@ -1163,18 +1039,51 @@ function drawActualWeightChart(model) {
   drawGrid(ctx, pad, plotW, plotH);
   drawYAxisLabels(ctx, minW, maxW, yForWeight, pad.left);
 
-  drawLine(ctx, model.reference, xForDay, yForWeight, "#7a7e8b", true, 2.2);
-  if (model.predicted.length > 1) {
-    drawLine(ctx, model.predicted, xForDay, yForWeight, "#3f4454", false, 3.8);
+  drawLine(ctx, model.predicted, xForDay, yForWeight, "#3f4454", true, 3.3);
+  if (model.actual.length > 1) {
+    drawLine(ctx, model.actual, xForDay, yForWeight, "#7b70b4", false, 2.8);
   }
-  drawSeriesDots(ctx, model.predicted, xForDay, yForWeight, "#3f4454", 3.2);
+  drawSeriesDots(ctx, model.actual, xForDay, yForWeight, "#7b70b4", 3.1);
 
   drawSelectedMarker(ctx, model.selectedDay, model.predicted, xForDay, yForWeight);
   drawXAxisLabels(ctx, model, xForDay, cssHeight, pad.bottom);
+}
 
-  if (model.predicted.length === 0) {
-    drawNoDataText(ctx, cssWidth, cssHeight, "Tilføj vægtmålinger for at se grafen.");
+function renderWeightComparisonMetrics(model) {
+  if (!expectedWeightTodayEl || !latestActualWeightEl || !weightDeviationEl || !weightComparisonHintEl) {
+    return;
   }
+
+  expectedWeightTodayEl.textContent = formatKg(model.forecastToday);
+
+  if (model.latestActual == null || model.deviation == null) {
+    latestActualWeightEl.textContent = "-";
+    weightDeviationEl.textContent = "-";
+    weightDeviationEl.classList.remove("delta-positive", "delta-negative", "delta-flat");
+    if (expectedWeightRowEl) expectedWeightRowEl.classList.add("hidden");
+    if (latestActualRowEl) latestActualRowEl.classList.add("hidden");
+    if (weightDeviationRowEl) weightDeviationRowEl.classList.add("hidden");
+    weightComparisonHintEl.classList.remove("hidden");
+    return;
+  }
+
+  if (expectedWeightRowEl) expectedWeightRowEl.classList.remove("hidden");
+  if (latestActualRowEl) latestActualRowEl.classList.remove("hidden");
+  if (weightDeviationRowEl) weightDeviationRowEl.classList.remove("hidden");
+
+  latestActualWeightEl.textContent = formatKg(model.latestActual);
+  weightDeviationEl.textContent = formatKgDelta(model.deviation);
+  weightDeviationEl.classList.remove("delta-positive", "delta-negative", "delta-flat");
+
+  if (model.deviation > 0.04) {
+    weightDeviationEl.classList.add("delta-positive");
+  } else if (model.deviation < -0.04) {
+    weightDeviationEl.classList.add("delta-negative");
+  } else {
+    weightDeviationEl.classList.add("delta-flat");
+  }
+
+  weightComparisonHintEl.classList.add("hidden");
 }
 
 function drawGrid(ctx, pad, plotW, plotH) {
@@ -1365,6 +1274,13 @@ function formatSignedKg(value) {
   const rounded = round1(value);
   if (rounded < 0) return `-${formatKg(Math.abs(rounded))}`;
   return formatKg(rounded);
+}
+
+function formatKgDelta(value) {
+  const rounded = round1(value);
+  if (rounded > 0) return `+${formatKg(rounded)}`;
+  if (rounded < 0) return `-${formatKg(Math.abs(rounded))}`;
+  return formatKg(0);
 }
 
 function formatKg(value) {

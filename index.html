@@ -132,35 +132,16 @@
         <p id="forecastMessage" class="forecast-message"></p>
         <div class="chart-content hidden" id="chartContent">
           <div class="legend">
-            <span><i class="dot predicted"></i><span id="predictedLegendText">Forventet vægttab</span></span>
-            <span><i class="dot reference"></i>Ligevægt</span>
+            <span><i class="dot predicted"></i>Prognosevægt</span>
+            <span><i class="dot actual"></i>Faktisk vægt</span>
           </div>
           <canvas id="projectionCanvas" height="260"></canvas>
-        </div>
-      </section>
-
-      <section class="card forecast-card">
-        <div class="card-head forecast-head">
-          <h2>Faktisk vægtændring</h2>
-          <button
-            id="actualChartToggleButton"
-            class="forecast-graph-btn"
-            type="button"
-            aria-label="Vis eller skjul faktisk vægttabsgraf"
-            aria-expanded="false"
-            aria-controls="actualChartContent"
-          >
-            <svg class="forecast-graph-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 18h16M5 15l5-5 4 3 5-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-        </div>
-        <div class="chart-content hidden" id="actualChartContent">
-          <div class="legend">
-            <span><i class="dot predicted"></i>Faktisk vægtændring</span>
-            <span><i class="dot reference"></i>Ligevægt</span>
+          <div class="forecast-metrics" id="weightComparisonMetrics">
+            <p id="expectedWeightRow"><span>Forventet vægt i dag</span><strong id="expectedWeightToday">0,0 kg</strong></p>
+            <p id="latestActualRow"><span>Seneste faktiske vægt</span><strong id="latestActualWeight">-</strong></p>
+            <p id="weightDeviationRow"><span>Afvigelse</span><strong id="weightDeviation">-</strong></p>
+            <p class="forecast-metrics-note hidden" id="weightComparisonHint">Indtast vægt for at sammenligne prognose med faktisk udvikling.</p>
           </div>
-          <canvas id="actualWeightCanvas" height="260"></canvas>
         </div>
       </section>
 
