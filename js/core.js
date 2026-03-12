@@ -801,16 +801,18 @@ function getMonthStats() {
     elapsedPlanDays = diffDaysInclusive(analysisStartISO, state.selectedDateISO);
   }
 
-  let accumulatedSaldo = 0;
-  state.days.forEach((record) => {
-    if (record.dateISO < analysisStartISO) return;
-    if (record.dateISO > state.selectedDateISO) return;
-    if (!isSameYearMonth(record.dateISO, year, month)) return;
-    accumulatedSaldo += getSaldoForRecord(record);
+  const monthCalorieRecords = state.days.filter((record) => {
+    if (record.dateISO < analysisStartISO) return false;
+    if (record.dateISO > state.selectedDateISO) return false;
+    if (!isSameYearMonth(record.dateISO, year, month)) return false;
+    return hasCalorieData(record);
   });
 
+  const loggedPlanDays = new Set(monthCalorieRecords.map((record) => record.dateISO)).size;
+  const accumulatedSaldo = monthCalorieRecords.reduce((sum, record) => sum + getSaldoForRecord(record), 0);
+
   const daysLeft = Math.max(daysInMonth - dayOfMonth, 0);
-  const averagePerDay = elapsedPlanDays > 0 ? accumulatedSaldo / elapsedPlanDays : 0;
+  const averagePerDay = loggedPlanDays > 0 ? accumulatedSaldo / loggedPlanDays : 0;
   const projectedMonthSaldo = accumulatedSaldo + averagePerDay * daysLeft;
   const projectedKgChange = projectedMonthSaldo / KCAL_PER_KG;
 
@@ -824,6 +826,7 @@ function getMonthStats() {
     monthEndISO,
     analysisStartISO,
     elapsedPlanDays,
+    loggedPlanDays,
     daysInMonth,
     daysLeft,
     accumulatedSaldo,
@@ -885,7 +888,7 @@ function analyzePreviousMonthForBasalAdjustment(referenceDateISO) {
     state.days.filter((record) => isSameYearMonth(record.dateISO, year, month))
   );
 
-  const calorieRecords = monthRecords.filter((record) => record.eaten > 0 || record.burned > 0);
+  const calorieRecords = monthRecords.filter((record) => hasCalorieData(record));
   const calorieLoggedDays = new Set(calorieRecords.map((record) => record.dateISO)).size;
   if (calorieLoggedDays < 21) return null;
 
@@ -917,8 +920,12 @@ function analyzePreviousMonthForBasalAdjustment(referenceDateISO) {
 }
 
 function getSaldoForRecord(record) {
-  if (record.eaten <= 0 && record.burned <= 0) return 0;
+  if (!hasCalorieData(record)) return 0;
   return state.settings.dailyBudget + record.burned - record.eaten;
+}
+
+function hasCalorieData(record) {
+  return record.eaten > 0 || record.burned > 0;
 }
 
 function estimateWeightAtEndOfDate(dateISO) {
@@ -945,11 +952,19 @@ function buildWeightChartModel() {
   const monthStartWeight = estimateWeightAtEndOfDate(addDaysISO(monthStartISO, -1));
 
   const dayRecords = new Map();
+  const calorieRecords = [];
   state.days.forEach((record) => {
     if (record.dateISO > state.selectedDateISO) return;
     if (!isSameYearMonth(record.dateISO, year, month)) return;
     dayRecords.set(record.dateISO, record);
+    if (record.dateISO < analysisStartISO) return;
+    if (!hasCalorieData(record)) return;
+    calorieRecords.push(record);
   });
+
+  const averageProjectedDeficit = calorieRecords.length > 0
+    ? calorieRecords.reduce((sum, record) => sum + getSaldoForRecord(record), 0) / calorieRecords.length
+    : 0;
 
   const predicted = [];
   let accumulatedDeficit = 0;
@@ -957,12 +972,14 @@ function buildWeightChartModel() {
   for (let day = 1; day <= daysInMonth; day += 1) {
     const dayISO = toISODate(new Date(year, month, day));
 
-    if (dayISO >= analysisStartISO && dayISO <= state.selectedDateISO) {
-      const record = dayRecords.get(dayISO);
-      if (record) {
-        const dailyNet = record.eaten - record.burned;
-        const dailyDeficit = state.settings.dailyBudget - dailyNet;
-        accumulatedDeficit += dailyDeficit;
+    if (dayISO >= analysisStartISO) {
+      if (dayISO <= state.selectedDateISO) {
+        const record = dayRecords.get(dayISO);
+        if (record) {
+          accumulatedDeficit += getSaldoForRecord(record);
+        }
+      } else {
+        accumulatedDeficit += averageProjectedDeficit;
       }
     }
 
