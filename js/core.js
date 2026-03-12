@@ -133,9 +133,16 @@ function init() {
     }, 110);
   });
   window.addEventListener("focus", () => {
+    if (syncSelectedDateWithToday()) {
+      saveState();
+      renderAll();
+    }
     void maybeOfferBasalAdjustmentAtMonthRollover();
   });
 
+  if (syncSelectedDateWithToday()) {
+    saveState();
+  }
   renderAll();
   void maybeOfferBasalAdjustmentAtMonthRollover();
   registerServiceWorker();
@@ -273,6 +280,13 @@ function syncDateInputs() {
 
   selectedDateInputEl.value = state.selectedDateISO;
   syncInputDatePicker();
+}
+
+function syncSelectedDateWithToday() {
+  const todayISO = getTodayISO();
+  if (state.selectedDateISO === todayISO) return false;
+  state.selectedDateISO = todayISO;
+  return true;
 }
 
 function syncInputDatePicker() {
